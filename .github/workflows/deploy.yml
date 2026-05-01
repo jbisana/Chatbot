@@ -110,6 +110,7 @@ jobs:
             # Set environment variables required by docker-compose.yml
             export GITHUB_REPOSITORY=$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
             export IMAGE_TAG=sha-$(echo "$GITHUB_SHA" | cut -c1-7)
+            export IMAGE_FULL_PATH="ghcr.io/$GITHUB_REPOSITORY:$IMAGE_TAG"
             
             # Pull the latest image and restart the container
             docker compose pull
