@@ -87,7 +87,7 @@ jobs:
           target: "~/app/chatbot"
 
       - name: Run Docker Compose on VPS
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ github.actor }}
