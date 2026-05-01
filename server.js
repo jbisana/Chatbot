@@ -1,10 +1,16 @@
-const express = require('express');
-const path = require('path');
-const crypto = require('crypto');
-const helmet = require('helmet');
-const cors = require('cors');
-const rateLimit = require('express-rate-limit');
-require('dotenv').config();
+import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import crypto from 'crypto';
+import helmet from 'helmet';
+import cors from 'cors';
+import { rateLimit } from 'express-rate-limit';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -32,7 +38,6 @@ const limiter = rateLimit({
     legacyHeaders: false,
 });
 
-// Use raw body for HMAC verification if needed, but for now we'll use json
 app.use(express.json());
 
 // HMAC Verification Middleware
@@ -55,12 +60,10 @@ const verifyHMAC = (req, res, next) => {
 app.post('/api/chat', limiter, verifyHMAC, async (req, res) => {
     const { session_id, message, metadata } = req.body;
 
-    // Basic Validation
     if (!message || typeof message !== 'string') {
         return res.status(422).json({ error: 'Invalid message format' });
     }
 
-    // Prompt Injection Prevention (Basic)
     const injectionPatterns = [/ignore previous instructions/i, /you are now/i, /system:/i];
     if (injectionPatterns.some(pattern => pattern.test(message))) {
         return res.status(400).json({ error: 'Potential prompt injection detected' });
@@ -70,9 +73,7 @@ app.post('/api/chat', limiter, verifyHMAC, async (req, res) => {
         const response = await fetch(N8N_WEBHOOK_URL, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                // Optional: Add authentication for n8n here
-                // 'X-N8N-API-KEY': process.env.N8N_API_KEY 
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({
                 session_id,
