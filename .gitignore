@@ -8,3 +8,4 @@ coverage/
 !.env.example
 *.md
 .md*
+testwebhook.json

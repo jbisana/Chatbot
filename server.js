@@ -38,7 +38,12 @@ const limiter = rateLimit({
     legacyHeaders: false,
 });
 
-app.use(express.json());
+// Capture the raw body so HMAC verification signs the exact bytes the client signed
+app.use(express.json({
+    verify: (req, _res, buf) => {
+        req.rawBody = buf;
+    }
+}));
 
 // HMAC Verification Middleware
 const verifyHMAC = (req, res, next) => {
@@ -48,7 +53,7 @@ const verifyHMAC = (req, res, next) => {
     }
 
     const hmac = crypto.createHmac('sha256', WEBHOOK_SECRET);
-    const digest = 'sha256=' + hmac.update(JSON.stringify(req.body)).digest('hex');
+    const digest = 'sha256=' + hmac.update(req.rawBody).digest('hex');
 
     if (signature !== digest) {
         return res.status(401).json({ error: 'Invalid signature' });
