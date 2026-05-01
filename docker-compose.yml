@@ -9,7 +9,8 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=production
-      # - GEMINI_API_KEY=${GEMINI_API_KEY} # Uncomment and configure to pass API keys from host environment
+      - N8N_WEBHOOK_URL=${N8N_WEBHOOK_URL}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
     restart: always
     deploy:
       resources:
