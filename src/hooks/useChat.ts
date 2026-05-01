@@ -1,13 +1,49 @@
 import { useState, useCallback } from 'react';
-import CryptoJS from 'crypto-js';
-
-// The shared secret should be passed via environment variables during build
-const WEBHOOK_SECRET = import.meta.env.VITE_WEBHOOK_SECRET || 'fallback-secret-replace-me';
 
 export type Message = {
     role: 'user' | 'model';
     text: string;
     timestamp: Date;
+};
+
+let signingSecretPromise: Promise<string> | null = null;
+
+const getSigningSecret = async () => {
+    if (!signingSecretPromise) {
+        signingSecretPromise = fetch('/api/signing-secret', { cache: 'no-store' })
+            .then(async response => {
+                if (!response.ok) {
+                    throw new Error(`Signing config responded with ${response.status}`);
+                }
+
+                const data = await response.json();
+                if (!data.secret || typeof data.secret !== 'string') {
+                    throw new Error('Signing config is missing a valid secret');
+                }
+
+                return data.secret;
+            });
+    }
+
+    return signingSecretPromise;
+};
+
+const createSignature = async (body: string) => {
+    const encoder = new TextEncoder();
+    const secret = await getSigningSecret();
+    const key = await crypto.subtle.importKey(
+        'raw',
+        encoder.encode(secret),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign']
+    );
+    const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
+    const hex = [...new Uint8Array(signature)]
+        .map(byte => byte.toString(16).padStart(2, '0'))
+        .join('');
+
+    return `sha256=${hex}`;
 };
 
 export function useChat() {
@@ -34,9 +70,7 @@ export function useChat() {
             };
 
             const bodyString = JSON.stringify(body);
-
-            // Generate HMAC signature for the request
-            const signature = 'sha256=' + CryptoJS.HmacSHA256(bodyString, WEBHOOK_SECRET).toString(CryptoJS.enc.Hex);
+            const signature = await createSignature(bodyString);
 
             const response = await fetch('/api/chat', {
                 method: 'POST',

@@ -67,8 +67,6 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            VITE_WEBHOOK_SECRET=${{ secrets.WEBHOOK_SECRET }}
 
   deploy:
     name: Deploy to VPS

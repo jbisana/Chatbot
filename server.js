@@ -15,7 +15,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL;
-const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'fallback-secret-replace-me';
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
 
 // Security Headers
 app.use(helmet({
@@ -48,18 +48,25 @@ app.use(express.json({
 // HMAC Verification Middleware
 const verifyHMAC = (req, res, next) => {
     const signature = req.headers['x-signature-256'];
-    if (!signature) {
+    if (!signature || Array.isArray(signature)) {
         return res.status(401).json({ error: 'Missing signature' });
     }
 
     const hmac = crypto.createHmac('sha256', WEBHOOK_SECRET);
     const digest = 'sha256=' + hmac.update(req.rawBody).digest('hex');
+    const signatureBuffer = Buffer.from(signature);
+    const digestBuffer = Buffer.from(digest);
 
-    if (signature !== digest) {
+    if (signatureBuffer.length !== digestBuffer.length || !crypto.timingSafeEqual(signatureBuffer, digestBuffer)) {
         return res.status(401).json({ error: 'Invalid signature' });
     }
     next();
 };
+
+app.get('/api/signing-secret', (_req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json({ secret: WEBHOOK_SECRET });
+});
 
 // API Endpoint for Chat
 app.post('/api/chat', limiter, verifyHMAC, async (req, res) => {
@@ -120,6 +127,11 @@ app.get('*', (req, res) => {
 // Fail fast – the server cannot operate without a valid webhook URL
 if (!N8N_WEBHOOK_URL) {
     console.error('FATAL: N8N_WEBHOOK_URL environment variable is not set. Exiting.');
+    process.exit(1);
+}
+
+if (!WEBHOOK_SECRET) {
+    console.error('FATAL: WEBHOOK_SECRET environment variable is not set. Exiting.');
     process.exit(1);
 }
 
