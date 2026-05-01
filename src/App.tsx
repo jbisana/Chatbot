@@ -173,7 +173,7 @@ function App() {
                             <span className="px-2 py-0.5 bg-emerald-50 text-emerald-800 rounded-full text-[10px] uppercase font-bold tracking-wider">Active</span>
                         </div>
                         <div className="flex items-center gap-4">
-                            <div className="text-zinc-400 text-xs hidden sm:block">Powered by Gemini</div>
+                            <div className="text-zinc-400 text-xs hidden sm:block">Powered by n8n</div>
                             <button 
                                 className="hidden md:flex p-2 text-zinc-600 hover:bg-zinc-100 rounded-lg transition-colors focus:outline-none"
                                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}

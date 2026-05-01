@@ -1,8 +1,8 @@
-import { useState } from 'react';
-import { GoogleGenAI, Chat } from '@google/genai';
+import { useState, useCallback } from 'react';
+import CryptoJS from 'crypto-js';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-const MODEL = "gemini-3-flash-preview";
+// The shared secret should be passed via environment variables during build
+const WEBHOOK_SECRET = import.meta.env.VITE_WEBHOOK_SECRET || 'fallback-secret-replace-me';
 
 export type Message = {
     role: 'user' | 'model';
@@ -13,55 +13,64 @@ export type Message = {
 export function useChat() {
     const [messages, setMessages] = useState<Message[]>([]);
     const [isLoading, setIsLoading] = useState(false);
-    const [chatSession, setChatSession] = useState<Chat | null>(null);
     const [error, setError] = useState<string | null>(null);
-
-    const initChat = () => {
-        const session = ai.chats.create({ model: MODEL });
-        setChatSession(session);
-        return session;
-    }
+    const [sessionId] = useState(() => crypto.randomUUID());
 
     const sendMessage = async (text: string) => {
         setIsLoading(true);
         setError(null);
         
-        // Add user message immediately
-        setMessages(prev => [...prev, { role: 'user', text, timestamp: new Date() }]);
+        const userMessage: Message = { role: 'user', text, timestamp: new Date() };
+        setMessages(prev => [...prev, userMessage]);
         
         try {
-            let session = chatSession;
-            if (!session) {
-                session = initChat();
-            }
-            
-            const response = await session.sendMessageStream({ message: text });
-            
-            // Add a placeholder for the model's message
-            setMessages(prev => [...prev, { role: 'model', text: '', timestamp: new Date() }]);
-            
-            let fullText = "";
-            for await (const chunk of response) {
-                // The correct property per documentation is chunk.text
-                if (chunk.text) {
-                    fullText += chunk.text;
-                    setMessages(prev => {
-                        const newMsgs = [...prev];
-                        // Update the last message (which belongs to the model)
-                        newMsgs[newMsgs.length - 1] = { role: 'model', text: fullText, timestamp: newMsgs[newMsgs.length - 1].timestamp };
-                        return newMsgs;
-                    });
+            const body = {
+                session_id: sessionId,
+                message: text,
+                metadata: {
+                    locale: navigator.language,
+                    timestamp: Date.now()
                 }
+            };
+
+            // Generate HMAC signature for the request
+            const signature = 'sha256=' + CryptoJS.HmacSHA256(JSON.stringify(body), WEBHOOK_SECRET).toString(CryptoJS.enc.Hex);
+
+            const response = await fetch('/api/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Signature-256': signature
+                },
+                body: JSON.stringify(body)
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || `Server responded with ${response.status}`);
             }
+
+            const data = await response.json();
+            
+            // Handle n8n response format. Assuming { output: "response text" } or similar
+            // Adjust based on your n8n workflow output node
+            const botText = data.output || data.message || data.text || JSON.stringify(data);
+
+            setMessages(prev => [...prev, { 
+                role: 'model', 
+                text: botText, 
+                timestamp: new Date() 
+            }]);
+
         } catch (e: any) {
-            console.error('Generative AI Error:', e);
-            setError(e?.message || 'An error occurred while communicating with the AI.');
+            console.error('Chat Error:', e);
+            setError(e?.message || 'An error occurred while communicating with the server.');
         } finally {
             setIsLoading(false);
         }
     };
 
-    const retryLastMessage = async () => {
+    const retryLastMessage = useCallback(async () => {
         const lastUserIndex = [...messages].reverse().findIndex(m => m.role === 'user');
         if (lastUserIndex === -1) return;
         
@@ -71,15 +80,14 @@ export function useChat() {
 
         setMessages(prev => prev.slice(0, actualIndex));
         await sendMessage(textToRetry);
-    };
+    }, [messages]);
 
-    const clearChat = () => {
+    const clearChat = useCallback(() => {
         setMessages([]);
-        setChatSession(null);
         setError(null);
-    };
+    }, []);
 
-    const exportChat = () => {
+    const exportChat = useCallback(() => {
         const text = messages.map(m => `${m.role === 'user' ? 'You' : 'AI'}: ${m.text}`).join('\n\n');
         const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
         const url = URL.createObjectURL(blob);
@@ -90,9 +98,9 @@ export function useChat() {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-    };
+    }, [messages]);
 
-    const shareChat = async () => {
+    const shareChat = useCallback(async () => {
         const text = messages.map(m => `${m.role === 'user' ? 'You' : 'AI'}: ${m.text}`).join('\n\n');
         if (navigator.share) {
             try {
@@ -101,7 +109,6 @@ export function useChat() {
                     text: text,
                 });
             } catch (err: any) {
-                // User may have cancelled or it failed
                 if (err.name !== 'AbortError') {
                     fallbackShare(text);
                 }
@@ -109,7 +116,7 @@ export function useChat() {
         } else {
             fallbackShare(text);
         }
-    };
+    }, [messages]);
 
     const fallbackShare = (text: string) => {
         navigator.clipboard.writeText(text).then(() => {
