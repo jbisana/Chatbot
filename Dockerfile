@@ -5,6 +5,8 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 COPY . .
+ARG VITE_WEBHOOK_SECRET
+ENV VITE_WEBHOOK_SECRET=$VITE_WEBHOOK_SECRET
 RUN npm run build
 
 # Stage 2: Runner

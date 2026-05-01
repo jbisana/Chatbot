@@ -33,8 +33,10 @@ export function useChat() {
                 }
             };
 
+            const bodyString = JSON.stringify(body);
+
             // Generate HMAC signature for the request
-            const signature = 'sha256=' + CryptoJS.HmacSHA256(JSON.stringify(body), WEBHOOK_SECRET).toString(CryptoJS.enc.Hex);
+            const signature = 'sha256=' + CryptoJS.HmacSHA256(bodyString, WEBHOOK_SECRET).toString(CryptoJS.enc.Hex);
 
             const response = await fetch('/api/chat', {
                 method: 'POST',
@@ -42,7 +44,7 @@ export function useChat() {
                     'Content-Type': 'application/json',
                     'X-Signature-256': signature
                 },
-                body: JSON.stringify(body)
+                body: bodyString
             });
 
             if (!response.ok) {
