@@ -58,6 +58,10 @@ const verifyHMAC = (req, res, next) => {
 
 // API Endpoint for Chat
 app.post('/api/chat', limiter, verifyHMAC, async (req, res) => {
+    if (!N8N_WEBHOOK_URL) {
+        return res.status(503).json({ error: 'AI engine is not configured' });
+    }
+
     const { session_id, message, metadata } = req.body;
 
     if (!message || typeof message !== 'string') {
@@ -108,9 +112,13 @@ app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
+// Fail fast – the server cannot operate without a valid webhook URL
+if (!N8N_WEBHOOK_URL) {
+    console.error('FATAL: N8N_WEBHOOK_URL environment variable is not set. Exiting.');
+    process.exit(1);
+}
+
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
-    if (!N8N_WEBHOOK_URL) {
-        console.warn('WARNING: N8N_WEBHOOK_URL is not defined!');
-    }
+    console.log(`Forwarding /api/chat → ${N8N_WEBHOOK_URL}`);
 });
