@@ -1,0 +1,6 @@
+{
+  "name": "AI Chat Assistant",
+  "description": "A responsive single-page chatbot implementation powered by Gemini AI. Includes clear, export, and chat sharing features via a dedicated controls workspace.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

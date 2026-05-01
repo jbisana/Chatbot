@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  app:
+    # Uses the image built and pushed by GitHub Actions
+    image: ghcr.io/${GITHUB_REPOSITORY}/${IMAGE_TAG}
+    container_name: react-chatbot-app
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      # - GEMINI_API_KEY=${GEMINI_API_KEY} # Uncomment and configure to pass API keys from host environment
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 256M
