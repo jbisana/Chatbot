@@ -1,4 +1,8 @@
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
+import { GoogleGenAI, Chat } from '@google/genai';
+
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const MODEL = "gemini-3-flash-preview";
 
 export type Message = {
     role: 'user' | 'model';
@@ -6,107 +10,58 @@ export type Message = {
     timestamp: Date;
 };
 
-let signingSecretPromise: Promise<string> | null = null;
-
-const getSigningSecret = async () => {
-    if (!signingSecretPromise) {
-        signingSecretPromise = fetch('/api/signing-secret', { cache: 'no-store' })
-            .then(async response => {
-                if (!response.ok) {
-                    throw new Error(`Signing config responded with ${response.status}`);
-                }
-
-                const data = await response.json();
-                if (!data.secret || typeof data.secret !== 'string') {
-                    throw new Error('Signing config is missing a valid secret');
-                }
-
-                return data.secret;
-            });
-    }
-
-    return signingSecretPromise;
-};
-
-const createSignature = async (body: string) => {
-    const encoder = new TextEncoder();
-    const secret = await getSigningSecret();
-    const key = await crypto.subtle.importKey(
-        'raw',
-        encoder.encode(secret),
-        { name: 'HMAC', hash: 'SHA-256' },
-        false,
-        ['sign']
-    );
-    const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
-    const hex = [...new Uint8Array(signature)]
-        .map(byte => byte.toString(16).padStart(2, '0'))
-        .join('');
-
-    return `sha256=${hex}`;
-};
-
 export function useChat() {
     const [messages, setMessages] = useState<Message[]>([]);
     const [isLoading, setIsLoading] = useState(false);
+    const [chatSession, setChatSession] = useState<Chat | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [sessionId] = useState(() => crypto.randomUUID());
+
+    const initChat = () => {
+        const session = ai.chats.create({ model: MODEL });
+        setChatSession(session);
+        return session;
+    }
 
     const sendMessage = async (text: string) => {
         setIsLoading(true);
         setError(null);
         
-        const userMessage: Message = { role: 'user', text, timestamp: new Date() };
-        setMessages(prev => [...prev, userMessage]);
+        // Add user message immediately
+        setMessages(prev => [...prev, { role: 'user', text, timestamp: new Date() }]);
         
         try {
-            const body = {
-                session_id: sessionId,
-                message: text,
-                metadata: {
-                    locale: navigator.language,
-                    timestamp: Date.now()
-                }
-            };
-
-            const bodyString = JSON.stringify(body);
-            const signature = await createSignature(bodyString);
-
-            const response = await fetch('/api/chat', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Signature-256': signature
-                },
-                body: bodyString
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.error || `Server responded with ${response.status}`);
+            let session = chatSession;
+            if (!session) {
+                session = initChat();
             }
-
-            const data = await response.json();
             
-            // Handle n8n response format. Assuming { output: "response text" } or similar
-            // Adjust based on your n8n workflow output node
-            const botText = data.output || data.message || data.text || JSON.stringify(data);
-
-            setMessages(prev => [...prev, { 
-                role: 'model', 
-                text: botText, 
-                timestamp: new Date() 
-            }]);
-
+            const response = await session.sendMessageStream({ message: text });
+            
+            // Add a placeholder for the model's message
+            setMessages(prev => [...prev, { role: 'model', text: '', timestamp: new Date() }]);
+            
+            let fullText = "";
+            for await (const chunk of response) {
+                // The correct property per documentation is chunk.text
+                if (chunk.text) {
+                    fullText += chunk.text;
+                    setMessages(prev => {
+                        const newMsgs = [...prev];
+                        // Update the last message (which belongs to the model)
+                        newMsgs[newMsgs.length - 1] = { role: 'model', text: fullText, timestamp: newMsgs[newMsgs.length - 1].timestamp };
+                        return newMsgs;
+                    });
+                }
+            }
         } catch (e: any) {
-            console.error('Chat Error:', e);
-            setError(e?.message || 'An error occurred while communicating with the server.');
+            console.error('Generative AI Error:', e);
+            setError(e?.message || 'An error occurred while communicating with the AI.');
         } finally {
             setIsLoading(false);
         }
     };
 
-    const retryLastMessage = useCallback(async () => {
+    const retryLastMessage = async () => {
         const lastUserIndex = [...messages].reverse().findIndex(m => m.role === 'user');
         if (lastUserIndex === -1) return;
         
@@ -116,14 +71,15 @@ export function useChat() {
 
         setMessages(prev => prev.slice(0, actualIndex));
         await sendMessage(textToRetry);
-    }, [messages]);
+    };
 
-    const clearChat = useCallback(() => {
+    const clearChat = () => {
         setMessages([]);
+        setChatSession(null);
         setError(null);
-    }, []);
+    };
 
-    const exportChat = useCallback(() => {
+    const exportChat = () => {
         const text = messages.map(m => `${m.role === 'user' ? 'You' : 'AI'}: ${m.text}`).join('\n\n');
         const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
         const url = URL.createObjectURL(blob);
@@ -134,9 +90,9 @@ export function useChat() {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-    }, [messages]);
+    };
 
-    const shareChat = useCallback(async () => {
+    const shareChat = async () => {
         const text = messages.map(m => `${m.role === 'user' ? 'You' : 'AI'}: ${m.text}`).join('\n\n');
         if (navigator.share) {
             try {
@@ -145,6 +101,7 @@ export function useChat() {
                     text: text,
                 });
             } catch (err: any) {
+                // User may have cancelled or it failed
                 if (err.name !== 'AbortError') {
                     fallbackShare(text);
                 }
@@ -152,7 +109,7 @@ export function useChat() {
         } else {
             fallbackShare(text);
         }
-    }, [messages]);
+    };
 
     const fallbackShare = (text: string) => {
         navigator.clipboard.writeText(text).then(() => {
